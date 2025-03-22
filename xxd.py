@@ -1,108 +1,107 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
+# TODO:
+# Replace
+#     `#!/usr/bin/env python3`
+# with
+#     `#!/usr/bin/env -S python3 -OO`
+# to disable asserts (asserts are for development only)
+
+import optparse
 import os
 import sys
 import typing
+from contextlib import contextmanager
 from pathlib import Path
+from pprint import pp
 
 PROGRAM_NAME = "xxd.py"
 
-
-# Classes
+# Parser
 # ========================================
-# NOTE: Might not need a class
-class Config:
-    def __init__(self) -> None:
-        self.infile = sys.stdin.buffer
-        self.outfile = sys.stdout
-        self._cols = 16  # Min: 1  Max: 256
+usage = "usage: %prog [options] [infile [outfile]]"
+description = "xxd.py creates a hex dump of a given file or standard input."
 
-        # Separate  the  output  of  every <bytes> bytes by a whitespace.
-        self._groupsize = 2
-
-        # NOTE: Not implemented
-        self.uppercase = False
-        self.help = False
-        self.len = False  # Stop after writing <len> octets.
-
-    def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}"
-            "("
-            f"infile={self.infile!r}, "
-            f"outfile={self.outfile!r}, "
-            f"cols={self.cols!r}, "
-            f"groupsize={self.groupsize!r}"
-            ")"
-        )
-
-    @property
-    def cols(self):
-        return self._cols
-
-    @cols.setter
-    def cols(self, v: int):
-        if not (1 <= v <= 256):
-            print("Cols must be between 1 and 256")
-            sys.exit(1)
-        self._cols = v
-
-    @property
-    def groupsize(self):
-        return self._groupsize
-
-    @groupsize.setter
-    def groupsize(self, v: int):
-        if not (0 <= v <= 256):
-            print("Groupsize must be between 0 and 256")
-            sys.exit(1)
-        self._groupsize = v
+parser = optparse.OptionParser(usage, description=description)
+parser.add_option(
+    "-r",
+    "--revert",
+    default=False,
+    action="store_true",
+    help="Reverse operation: convert hexdump into binary",
+)
 
 
-config = Config()
-
-
-# Functions
+# Config
 # ========================================
-def parse_sys_argv():
-    """
-    Parse cli, update config.
-    """
+class Config(typing.TypedDict):
+    revert: bool
+    infile: typing.BinaryIO | Path
+    outfile: typing.TextIO | Path
+    is_infile_path: bool
+    is_outfile_path: bool
 
-    i = 1
-    N = len(sys.argv)
 
-    while i < N:
-        v = sys.argv[i]
+# Stuff
+# ========================================
+class NoSuchFileException(Exception):
+    def __init__(self, *args: object, message: str | None = None):
+        super().__init__(*args)
+        self.message = message
 
-        # Help
-        if v == "-h" or v == "--help":
-            print("Print Help")
-            sys.exit()
 
-        # Optional Arguments
-        if v == "-c" or v == "--cols":
-            i += 1
-            config.cols = int(sys.argv[i])
+def convert(b: bytes):
+    pass
 
-        if v == "-g" or v == "--groupsize":
-            i += 1
-            config.groupsize = int(sys.argv[i])
 
-        # Positional Arguments
-        if not v.startswith("-"):
-            fp = Path(v)
-            if not fp.exists():
-                print(f"{PROGRAM_NAME}: {v}: No such file or directory")
-                sys.exit(1)
+def revert(s: str):
+    pass
 
-            if config.infile is sys.stdin.buffer:
-                config.infile = fp
-            else:
-                config.outfile = fp
 
-        # Process next word
-        i += 1
+def route_dehex(config: Config):
+    pass
+
+
+def check_args(args: list):
+    # length = len(args)
+    pass
+
+
+def get_config(opts: optparse.Values, args) -> Config:
+    config: Config = {
+        "revert": False,
+        "infile": sys.stdin.buffer,
+        "outfile": sys.stdout,
+        "is_infile_path": False,
+        "is_outfile_path": False,
+    }
+
+    if opts.revert:
+        config["revert"] = True
+
+    args_count = len(args)
+
+    # TODO: maybe put this elsewhere
+    if args_count > 2:
+        parser.print_help()
+        sys.exit(1)
+
+    if args_count >= 1:
+        fp = Path(args[0]).resolve()
+        if not fp.exists():
+            raise NoSuchFileException(
+                message=f"{PROGRAM_NAME}: {args[0]}: No such file or directory"
+            )
+        config["infile"] = fp
+        config["is_infile_path"] = True
+
+    if args_count == 2:
+        # out file will be created / overwitten
+        config["outfile"] = Path(args[1]).resolve()
+        config["is_outfile_path"] = True
+
+    return config
 
 
 def mid_buffer_width(c: int, g: int):
@@ -119,18 +118,14 @@ def mid_buffer_width(c: int, g: int):
         return 2 * c + c // g
 
 
-def read_and_write(reader: typing.BinaryIO, writer: typing.TextIO):
-    """
-    Process byte by byte
-    """
+def route_hex(config: Config):
+    print("t1")
 
-    CONFIG_GROUPSIZE = config.groupsize
-    CONFIG_COLS = config.cols
-
+    CONFIG_COLS = 16
+    CONFIG_GROUPSIZE = 2
     MID_SEC_WIDTH = mid_buffer_width(CONFIG_COLS, CONFIG_GROUPSIZE)
     RIGHT_SEC_WIDTH = CONFIG_COLS
 
-    # FUTURE: use array
     mid_buffer = [" "] * MID_SEC_WIDTH
     mid_index = 0
 
@@ -139,80 +134,102 @@ def read_and_write(reader: typing.BinaryIO, writer: typing.TextIO):
 
     groups = 0
 
-    for i, v in enumerate(reader.read()):
+    with (
+        writer_opened(config) as writer,
+        reader_opened(config) as reader,
+    ):
 
-        # Left Section
-        if i % CONFIG_COLS == 0:
-            writer.write(f"{i:08x}: ")
+        for i, v in enumerate(reader.read()):
 
-        # Mid Section
-        mid_buffer[mid_index], mid_buffer[mid_index + 1] = f"{v:02x}"
-        mid_index += 2
-        groups += 1
+            # Left Section
+            if i % CONFIG_COLS == 0:
+                writer.write(f"{i:08x}: ")
 
-        if groups == CONFIG_GROUPSIZE:
-            groups = 0
+            # Mid Section
+            mid_buffer[mid_index], mid_buffer[mid_index + 1] = f"{v:02x}"
+            mid_index += 2
+            groups += 1
 
-            if mid_index < MID_SEC_WIDTH:
-                mid_buffer[mid_index] = " "
-                mid_index += 1
+            if groups == CONFIG_GROUPSIZE:
+                groups = 0
 
-        # Right Section
-        right_buffer[right_index] = c if (c := chr(v)).isprintable() else "."
-        right_index += 1
+                if mid_index < MID_SEC_WIDTH:
+                    mid_buffer[mid_index] = " "
+                    mid_index += 1
 
-        # Buffers full
-        if right_index == RIGHT_SEC_WIDTH:
+            # Right Section
+            # See ASCII Table 33: `!` 126: `~`
+            right_buffer[right_index] = chr(v) if 33 <= v <= 126 else "."
+            right_index += 1
+
+            # Buffers full
+            if right_index == RIGHT_SEC_WIDTH:
+                writer.write("".join(mid_buffer) + "  " + "".join(right_buffer) + "\n")
+
+                # Reset
+                mid_index = 0
+                right_index = 0
+                groups = 0
+
+        # Remaining buffer content
+        if right_index != 0:
+            # Empty outdated elements
+
+            for j in range(mid_index, MID_SEC_WIDTH):
+                mid_buffer[j] = " "
+            for j in range(right_index, RIGHT_SEC_WIDTH):
+                right_buffer[j] = " "
+
             writer.write("".join(mid_buffer) + "  " + "".join(right_buffer) + "\n")
 
-            # Reset
-            mid_index = 0
-            right_index = 0
-            groups = 0
 
-    # Remaining buffer content
-    if right_index != 0:
-        for j in range(mid_index, MID_SEC_WIDTH):
-            mid_buffer[j] = " "  # Empty dirty elements
+@contextmanager
+def reader_opened(config: Config):
+    infile = config["infile"]
 
-        for j in range(right_index, RIGHT_SEC_WIDTH):
-            right_buffer[j] = " "  # Empty dirty elements
-
-        writer.write("".join(mid_buffer) + "  " + "".join(right_buffer) + "\n")
+    if config["is_infile_path"]:
+        assert isinstance(infile, Path)
+        with open(infile, "rb") as reader:
+            yield reader
+    else:
+        assert not isinstance(infile, Path)
+        yield infile
 
 
-def execute():
-    reader = None
-    writer = None
+@contextmanager
+def writer_opened(config: Config):
+    outfile = config["outfile"]
 
-    try:
-        if isinstance(config.infile, Path):
-            reader = open(config.infile, "rb")
-        else:
-            reader = config.infile
-
-        if isinstance(config.outfile, Path):
-            writer = open(config.outfile, "w")
-        else:
-            writer = config.outfile
-
-        read_and_write(reader, writer)
-
-    finally:
-        if reader and isinstance(config.infile, Path):
-            reader.close()
-
-        if writer and isinstance(config.outfile, Path):
-            writer.close()
+    if config["is_outfile_path"]:
+        assert isinstance(outfile, Path)
+        with open(outfile, "w") as reader:
+            yield reader
+    else:
+        assert not isinstance(outfile, Path)
+        yield outfile
 
 
 # Main
 # ========================================
 def main():
-    parse_sys_argv()
+    opts, args = parser.parse_args()
 
     try:
-        execute()
+        config = get_config(opts, args)
+    except NoSuchFileException as e:
+        print(e.message, file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        print("Config:")
+        pp(config)
+        print()
+        if config["revert"]:
+            # route_dehex(config)
+            pass
+        else:
+            route_hex(config)
+
         sys.stdout.flush()
     except BrokenPipeError:
         # See: https://docs.python.org/3/library/signal.html#note-on-sigpipe
@@ -220,6 +237,8 @@ def main():
         os.dup2(devnull, sys.stdout.fileno())
         os.close(devnull)  # Not needed?
         sys.exit(0)
+
+    pass
 
 
 if __name__ == "__main__":
