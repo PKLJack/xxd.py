@@ -4,15 +4,10 @@ python3 -m unittest
 """
 
 import io
-import optparse
-import os
 import sys
-import types
 import unittest
-from io import StringIO
 from optparse import Values
 from pathlib import Path
-from pprint import pp
 
 import xxd
 
@@ -123,7 +118,6 @@ class TestGetConfig(unittest.TestCase):
 
         with self.assertRaises(xxd.NoSuchFileException):
             xxd.get_config(opts, args)
-        pass
 
 
 class TestHexStuff(unittest.TestCase):
@@ -192,7 +186,7 @@ class TestRouteHex(unittest.TestCase):
             "is_infile_path": False,
             "is_outfile_path": False,
         }
-        xxd.route_hex(config)
+        xxd.hexdump_route(config)
         result = out.getvalue()
 
         expected = (
@@ -214,7 +208,7 @@ class TestRouteHex(unittest.TestCase):
             "is_infile_path": False,
             "is_outfile_path": False,
         }
-        xxd.route_hex(config)
+        xxd.hexdump_route(config)
         result = out.getvalue()
 
         expected = (
@@ -229,6 +223,82 @@ class TestRouteHex(unittest.TestCase):
         )
 
         self.assertEqual(result, expected)
+
+
+class TestRouteRevert(unittest.TestCase):
+    def test_in_file_1(self):
+        fp = Path(__file__).parent / "files" / "en.txt.xxd"
+        in_stream = fp
+        out_stream = io.BytesIO()
+
+        config: xxd.Config = {
+            "revert": True,
+            "infile": in_stream,
+            "outfile": out_stream,
+            "is_infile_path": isinstance(in_stream, Path),
+            "is_outfile_path": isinstance(out_stream, Path),
+        }
+
+        xxd.revert_route(config)
+        result = out_stream.getvalue()
+
+        expected = (Path(__file__).parent / "files" / "en.txt").read_bytes()
+
+        self.assertEqual(type(result), type(expected))
+        self.assertEqual(result, expected)
+
+    def test_in_file_2(self):
+        fp = Path(__file__).parent / "files" / "cjk.txt.xxd"
+        in_stream = fp
+        out_stream = io.BytesIO()
+
+        config: xxd.Config = {
+            "revert": True,
+            "infile": in_stream,
+            "outfile": out_stream,
+            "is_infile_path": isinstance(in_stream, Path),
+            "is_outfile_path": isinstance(out_stream, Path),
+        }
+
+        xxd.revert_route(config)
+        result = out_stream.getvalue()
+
+        expected = (Path(__file__).parent / "files" / "cjk.txt").read_bytes()
+
+        self.assertEqual(type(result), type(expected))
+        self.assertEqual(result, expected)
+
+    def test_in_stringio(self):
+        fp = Path(__file__).parent / "files" / "en.txt.xxd"
+        in_stream = io.StringIO(fp.read_text())
+        out_stream = io.BytesIO()
+
+        config: xxd.Config = {
+            "revert": True,
+            "infile": in_stream,
+            "outfile": out_stream,
+            "is_infile_path": isinstance(in_stream, Path),
+            "is_outfile_path": isinstance(out_stream, Path),
+        }
+
+        xxd.revert_route(config)
+        result = out_stream.getvalue()
+
+        expected = (Path(__file__).parent / "files" / "en.txt").read_bytes()
+
+        self.assertEqual(type(result), type(expected))
+        self.assertEqual(result, expected)
+
+
+class TestUtils(unittest.TestCase):
+    def test1(self):
+        s0 = "00000010: e382 93e3 8293 0a                        .......         "
+
+        s1, s2, s3 = xxd.revert_parse_line(s0)
+
+        self.assertEqual(s1, "00000010")
+        self.assertEqual(s2, "e382 93e3 8293 0a")
+        self.assertEqual(s3, ".......")
 
 
 if __name__ == "__main__":

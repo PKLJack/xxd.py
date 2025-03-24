@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -OO
 # -*- coding: utf-8 -*-
 
-# TODO:
-# Replace
-#     `#!/usr/bin/env python3`
-# with
-#     `#!/usr/bin/env -S python3 -OO`
-# to disable asserts (asserts are for development only)
+# NOTE:
+# To enable assertions:
+# - Execute this file as `python3 ./xxd.py` instead of `./xxd.py`
+# - Remove `-OO` from the shebang line
 
 import optparse
 import os
+import re
 import sys
 import typing
+from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from pprint import pp
@@ -33,52 +33,32 @@ parser.add_option(
 )
 
 
-# Config
+# Class
 # ========================================
 class Config(typing.TypedDict):
     revert: bool
-    infile: typing.BinaryIO | Path
-    outfile: typing.TextIO | Path
+    infile: typing.IO | Path
+    outfile: typing.IO | Path
     is_infile_path: bool
     is_outfile_path: bool
 
 
-# Stuff
-# ========================================
 class NoSuchFileException(Exception):
     def __init__(self, *args: object, message: str | None = None):
         super().__init__(*args)
         self.message = message
 
 
-def convert(b: bytes):
-    pass
-
-
-def revert(s: str):
-    pass
-
-
-def route_dehex(config: Config):
-    pass
-
-
-def check_args(args: list):
-    # length = len(args)
-    pass
-
-
+# Functions
+# ========================================
 def get_config(opts: optparse.Values, args) -> Config:
     config: Config = {
-        "revert": False,
-        "infile": sys.stdin.buffer,
-        "outfile": sys.stdout,
+        "revert": opts.revert,
+        "infile": sys.stdin if opts.revert else sys.stdin.buffer,
+        "outfile": sys.stdout.buffer if opts.revert else sys.stdout,
         "is_infile_path": False,
         "is_outfile_path": False,
     }
-
-    if opts.revert:
-        config["revert"] = True
 
     args_count = len(args)
 
@@ -104,26 +84,52 @@ def get_config(opts: optparse.Values, args) -> Config:
     return config
 
 
-def mid_buffer_width(c: int, g: int):
-    """
-    Numbers after `+` is whitespace column count
-    """
-    if g == 0 or c <= g:
-        return 2 * c
-    elif g == 1:
-        return 2 * c + c - 1
-    elif c % g == 0:
-        return 2 * c + c // g - 1
+@contextmanager
+def opened_stream(obj: typing.IO | Path, is_path: bool, mode: str):
+    assert mode in ("r", "wb", "rb", "w")
+
+    if is_path:
+        assert isinstance(obj, Path)
+        with open(obj, mode) as handler:
+            yield handler
     else:
-        return 2 * c + c // g
+        assert not isinstance(obj, Path)
+        yield obj
 
 
-def route_hex(config: Config):
-    print("t1")
+def revert_route(config: Config):
+    with (
+        opened_stream(config["infile"], config["is_infile_path"], "r") as reader,
+        opened_stream(config["outfile"], config["is_outfile_path"], "wb") as writer,
+    ):
+        for line in reader.readlines():
+            _, s2, _ = revert_parse_line(line)
 
+            assert isinstance(s2, str)
+
+            writer.write(bytes.fromhex(s2))
+
+
+def revert_parse_line(line: str):
+    """
+    Parse line for revert mode.
+    """
+    # NOTE:
+    # Only handles "NNNNNNNN: XXXX XXXX ... XXXX  CCC...\n"
+    #                       ^^                  ^^+
+
+    s1, rest = line.split(": ")
+
+    # TODO: compile pattern somewhere once only
+    s2, s3, *_ = re.split(r"\s{2,}", rest)
+
+    return s1, s2, s3
+
+
+def hexdump_route(config: Config):
     CONFIG_COLS = 16
     CONFIG_GROUPSIZE = 2
-    MID_SEC_WIDTH = mid_buffer_width(CONFIG_COLS, CONFIG_GROUPSIZE)
+    MID_SEC_WIDTH = hexdump_mid_buffer_width(CONFIG_COLS, CONFIG_GROUPSIZE)
     RIGHT_SEC_WIDTH = CONFIG_COLS
 
     mid_buffer = [" "] * MID_SEC_WIDTH
@@ -135,8 +141,8 @@ def route_hex(config: Config):
     groups = 0
 
     with (
-        writer_opened(config) as writer,
-        reader_opened(config) as reader,
+        opened_stream(config["infile"], config["is_infile_path"], "rb") as reader,
+        opened_stream(config["outfile"], config["is_outfile_path"], "w") as writer,
     ):
 
         for i, v in enumerate(reader.read()):
@@ -183,30 +189,20 @@ def route_hex(config: Config):
             writer.write("".join(mid_buffer) + "  " + "".join(right_buffer) + "\n")
 
 
-@contextmanager
-def reader_opened(config: Config):
-    infile = config["infile"]
-
-    if config["is_infile_path"]:
-        assert isinstance(infile, Path)
-        with open(infile, "rb") as reader:
-            yield reader
+def hexdump_mid_buffer_width(c: int, g: int):
+    """
+    For hexdump mode.
+    Calculates width for mid section.
+    """
+    # Numbers after `+` is whitespace column count
+    if g == 0 or c <= g:
+        return 2 * c
+    elif g == 1:
+        return 2 * c + c - 1
+    elif c % g == 0:
+        return 2 * c + c // g - 1
     else:
-        assert not isinstance(infile, Path)
-        yield infile
-
-
-@contextmanager
-def writer_opened(config: Config):
-    outfile = config["outfile"]
-
-    if config["is_outfile_path"]:
-        assert isinstance(outfile, Path)
-        with open(outfile, "w") as reader:
-            yield reader
-    else:
-        assert not isinstance(outfile, Path)
-        yield outfile
+        return 2 * c + c // g
 
 
 # Main
@@ -221,14 +217,10 @@ def main():
         sys.exit(2)
 
     try:
-        print("Config:")
-        pp(config)
-        print()
         if config["revert"]:
-            # route_dehex(config)
-            pass
+            revert_route(config)
         else:
-            route_hex(config)
+            hexdump_route(config)
 
         sys.stdout.flush()
     except BrokenPipeError:
