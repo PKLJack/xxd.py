@@ -1,0 +1,11 @@
+[project]
+name = "xxd.py"
+version = "0.0.1"
+description = "An implementation of xxd in Python"
+authors = [
+  {name = "PKLJack", email = "59538991+PKLJack@users.noreply.github.com"},
+]
+
+[project.scripts]
+"xxd.py" = "xxd_pkg.__main__:main"
+

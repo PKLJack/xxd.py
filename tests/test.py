@@ -9,7 +9,7 @@ import unittest
 from optparse import Values
 from pathlib import Path
 
-import xxd
+from xxd_pkg import xxd
 
 
 class TestSanity(unittest.TestCase):

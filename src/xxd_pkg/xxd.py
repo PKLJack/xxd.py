@@ -11,10 +11,8 @@ import os
 import re
 import sys
 import typing
-from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from pprint import pp
 
 PROGRAM_NAME = "xxd.py"
 
